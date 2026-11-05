@@ -15,6 +15,14 @@ MODEL = "gpt-6-luna"
 NOW = datetime.strptime("2026-06-10T09:00+02:00", "%Y-%m-%dT%H:%M%z")
 REASONING_EFFORT = "none"
 
+
+def find_booking(booking_id: str) -> dict | None:
+    normalized = booking_id.strip().upper()
+    with open("data/bookings.json", "r", encoding="utf-8") as file:
+        data = json.load(file)
+    return next((item for item in data if item["id"] == normalized), None)
+
+
 # finds the parts of the documents in data/policies/ that are relevant to a question.
 
 
@@ -26,35 +34,45 @@ def search_policies() -> str:
 
 
 def get_booking(booking_id: str) -> str:
-    with open("data/bookings.json", "r") as file:
-        data = json.load(file)
-        return next(
-            (item for item in data if item.get("id") == booking_id), "Booking not found"
-        )
+    booking = find_booking(booking_id)
+    return booking if booking else "Booking not found"
 
 
 # calculates how much a customer gets back if they cancel a booking now, following the cancellation rules.
 
 
-def calculate_refund(booking_id: str) -> str:
-    with open("data/bookings.json", "r") as file:
-        data = json.load(file)
-        booking = next(
-            (item for item in data if item.get("id") == booking_id), "Booking not found"
-        )
-        if booking.get("status") != "confirmed":
-            return "Booking is not confirmed - refund is not applicable"
+def calculate_refund(booking_id: str) -> dict:
+    booking = find_booking(booking_id)
+    if not booking:
+        return {"found": False, "booking_id": booking_id}
+    if booking["status"] != "confirmed":
+        return {
+            "found": True,
+            "can_cancel": False,
+            "status": booking["status"],
+        }
 
-        start = datetime.strptime(booking.get("start"), "%Y-%m-%dT%H:%M:%S%z")
-        deposit_fee = booking.get("deposit_eur")
-        rental_price = booking.get("rental_price_eur")
-        duration = start - NOW
-        if duration.total_seconds() / 3600 >= 48:
-            return f"100% refund. Full deposit fee refunded ({deposit_fee} EUR), Full rental price refunded ({rental_price} EUR)."
-        elif duration.total_seconds() / 3600 >= 24:
-            return f"50% refund. Full deposit fee refunded ({deposit_fee} EUR), 50% rental price refunded ({rental_price * 0.5} EUR)"
-        else:
-            return "No refund"
+    hours = (datetime.fromisoformat(booking["start"]) - NOW).total_seconds() / 3600
+
+    if hours >= 48:
+        percent = 100
+    elif hours >= 24:
+        percent = 50
+    else:
+        percent = 0
+
+    rental_refund = booking["rental_price_eur"] * percent / 100
+    deposit = booking["deposit_eur"]
+    return {
+        "found": True,
+        "can_cancel": True,
+        "refund_percent": percent,
+        "rental_refund_eur": rental_refund,
+        "deposit_refund_eur": deposit,
+        "booking_fee_refund_eur": 0,
+        "total_refund_eur": rental_refund + deposit,
+        "paid_with": booking["paid_with"],
+    }
 
 
 TOOLS = [
@@ -121,7 +139,7 @@ def run(user_msg: str, max_steps: int = 6) -> str:
             except Exception as e:
                 result = f"error: {e}"
             messages.append(
-                {"role": "tool", "tool_call_id": call.id, "content": str(result)}
+                {"role": "tool", "tool_call_id": call.id, "content": json.dumps(result)}
             )
     return "stopped: step limit reached"
 
