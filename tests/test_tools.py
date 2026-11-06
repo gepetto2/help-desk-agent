@@ -101,7 +101,9 @@ def test_refund_for_unknown_booking():
     assert calculate_refund("CW-9999") == {"found": False, "booking_id": "CW-9999"}
 
 
-@pytest.mark.parametrize("booking_id", ["cw-1002", " CW-1002 "])
+@pytest.mark.parametrize(
+    "booking_id", ["cw-1002", " CW-1002 ", "CW1002", "cw 1002", "CW_1002"]
+)
 def test_refund_accepts_differently_written_booking_number(booking_id):
     assert calculate_refund(booking_id)["total_refund_eur"] == 340
 
@@ -115,9 +117,16 @@ def test_get_booking_returns_details():
     assert booking["paid_with"] == "voucher"
 
 
-@pytest.mark.parametrize("booking_id", ["cw-1002", " CW-1002 "])
+@pytest.mark.parametrize(
+    "booking_id", ["cw-1002", " CW-1002 ", "CW1002", "cw 1002", "CW_1002"]
+)
 def test_get_booking_accepts_differently_written_booking_number(booking_id):
     assert get_booking(booking_id)["id"] == "CW-1002"
+
+
+@pytest.mark.parametrize("booking_id", ["AB-1002", "1002"])
+def test_get_booking_rejects_other_numbers(booking_id):
+    assert get_booking(booking_id) == "Booking not found"
 
 
 def test_get_booking_reports_unknown_booking():

@@ -1,6 +1,7 @@
 # agent.py
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -37,11 +38,17 @@ def create_client() -> OpenAI:
     return OpenAI(api_key=os.getenv("LLM_API_KEY"))
 
 
+def normalize_booking_id(booking_id: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", booking_id.upper())
+
+
 def find_booking(booking_id: str) -> dict | None:
-    normalized = booking_id.strip().upper()
+    normalized = normalize_booking_id(booking_id)
     with open("data/bookings.json", "r", encoding="utf-8") as file:
         data = json.load(file)
-    return next((item for item in data if item["id"] == normalized), None)
+    return next(
+        (item for item in data if normalize_booking_id(item["id"]) == normalized), None
+    )
 
 
 def load_sections() -> list[dict]:
