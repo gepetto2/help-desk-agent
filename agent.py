@@ -188,14 +188,17 @@ DISPATCH = {
 
 
 def run(
-    user_msg: str, client, max_steps: int = 6, tools_called: list[str] | None = None
+    user_msg: str,
+    client,
+    max_steps: int = 6,
+    tools_called: list[str] | None = None,
+    messages: list | None = None,
 ) -> str:
     if tools_called is None:
         tools_called = []
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_msg},
-    ]
+    if messages is None:
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages.append({"role": "user", "content": user_msg})
     for _ in range(max_steps):
         resp = client.chat.completions.create(
             model=MODEL,
@@ -222,13 +225,16 @@ def run(
 
 if __name__ == "__main__":
     client = create_client()
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     while True:
         user_input = input("Enter your message: ")
         if user_input.strip().lower() == "exit":
             break
+        checkpoint = len(messages)
         try:
-            response = run(user_input, client)
+            response = run(user_input, client, messages=messages)
         except OpenAIError as e:
+            del messages[checkpoint:]  # drop the unfinished question from the history
             response = f"Sorry, the service is not available right now ({type(e).__name__}). Please contact the staff: help@citywheels.example or +48 000 000 000."
         print(response)
     # print(calculate_refund("CW-1002"))

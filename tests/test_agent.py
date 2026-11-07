@@ -1,7 +1,12 @@
 import json
+import runpy
+from pathlib import Path
 from types import SimpleNamespace
 
-from agent import MODEL, TOOLS, run
+from openai import APIConnectionError
+
+import agent
+from agent import MODEL, SYSTEM_PROMPT, TOOLS, run
 
 
 def tool_call(name, arguments, call_id="call_1"):
@@ -25,7 +30,10 @@ class FakeClient:
 
     def create(self, **kwargs):
         self.requests.append({**kwargs, "messages": list(kwargs["messages"])})
-        return self.replies.pop(0)
+        reply = self.replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
 
 
 def tool_results(request):
@@ -151,3 +159,98 @@ def test_stops_at_step_limit():
 
     assert "help@citywheels.example" in answer
     assert len(client.requests) == 3
+
+
+def new_conversation():
+    return [{"role": "system", "content": SYSTEM_PROMPT}]
+
+
+def user_questions(request):
+    return [
+        message["content"]
+        for message in request["messages"]
+        if isinstance(message, dict) and message["role"] == "user"
+    ]
+
+
+def test_next_question_sees_previous_question_and_answer():
+    client = FakeClient([model_reply("We open at 08:00."), model_reply("Until 20:00.")])
+    messages = new_conversation()
+
+    run("When do you open?", client, messages=messages)
+    run("And when do you close?", client, messages=messages)
+
+    second_request = client.requests[1]["messages"]
+    assert second_request[0]["role"] == "system"
+    assert second_request[1]["content"] == "When do you open?"
+    assert second_request[2].content == "We open at 08:00."
+    assert second_request[3]["content"] == "And when do you close?"
+
+
+def test_conversation_keeps_one_system_message():
+    client = FakeClient([model_reply("First."), model_reply("Second.")])
+    messages = new_conversation()
+
+    run("One?", client, messages=messages)
+    run("Two?", client, messages=messages)
+
+    roles = [m["role"] for m in client.requests[1]["messages"] if isinstance(m, dict)]
+    assert roles.count("system") == 1
+
+
+def test_next_question_sees_previous_tool_results():
+    client = FakeClient(
+        [
+            model_reply(
+                tool_calls=[tool_call("calculate_refund", '{"booking_id": "CW-1002"}')]
+            ),
+            model_reply("You get 340 EUR back."),
+            model_reply("It goes back to your card."),
+        ]
+    )
+    messages = new_conversation()
+
+    run("How much for CW-1002?", client, messages=messages)
+    run("How will I get it?", client, messages=messages)
+
+    result = tool_results(client.requests[2])[0]
+    assert json.loads(result["content"])["total_refund_eur"] == 340
+
+
+def test_each_call_without_messages_starts_a_new_conversation():
+    client = FakeClient([model_reply("First."), model_reply("Second.")])
+
+    run("One?", client)
+    run("Two?", client)
+
+    assert user_questions(client.requests[1]) == ["Two?"]
+
+
+def run_cli(monkeypatch, client, inputs):
+    answers = iter(inputs)
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    monkeypatch.setattr("openai.OpenAI", lambda api_key=None: client)
+    runpy.run_path(str(Path(agent.__file__)), run_name="__main__")
+
+
+def test_cli_keeps_conversation_between_questions(monkeypatch, capsys):
+    client = FakeClient([model_reply("First."), model_reply("Second.")])
+
+    run_cli(monkeypatch, client, ["One?", "Two?", "exit"])
+
+    assert user_questions(client.requests[1]) == ["One?", "Two?"]
+    output = capsys.readouterr().out
+    assert "First." in output
+    assert "Second." in output
+
+
+def test_cli_drops_failed_question_from_conversation(monkeypatch, capsys):
+    api_error = APIConnectionError(request=SimpleNamespace())
+    client = FakeClient([api_error, model_reply("Answer.")])
+
+    run_cli(monkeypatch, client, ["Failed?", "Next?", "exit"])
+
+    assert user_questions(client.requests[1]) == ["Next?"]
+    output = capsys.readouterr().out
+    assert "help@citywheels.example" in output
+    assert "Answer." in output

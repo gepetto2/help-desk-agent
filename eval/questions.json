@@ -230,5 +230,50 @@
     "must_match": [],
     "must_not_match": [],
     "should_refuse": true
+  },
+  {
+    "id": "memory-refund-method",
+    "question": "How much do I get back if I cancel CW-1002?",
+    "follow_ups": ["How long will it take to get the money back?"],
+    "expected_tools": ["calculate_refund"],
+    "must_match": ["\\b5\\b"],
+    "must_not_match": [],
+    "should_refuse": false
+  },
+  {
+    "id": "memory-number-given-later",
+    "question": "How much do I get back if I cancel my booking?",
+    "follow_ups": ["It's CW-1007."],
+    "expected_tools": ["calculate_refund"],
+    "must_match": ["\\b186\\b"],
+    "must_not_match": [],
+    "should_refuse": false
+  },
+  {
+    "id": "memory-next-booking",
+    "question": "How much do I get back if I cancel CW-1002?",
+    "follow_ups": ["And what about CW-1004?"],
+    "expected_tools": ["calculate_refund"],
+    "must_match": ["\\b73\\b", "voucher"],
+    "must_not_match": [],
+    "should_refuse": false
+  },
+  {
+    "id": "memory-cancel-tomorrow",
+    "question": "How much do I get back if I cancel CW-1002?",
+    "follow_ups": ["What if I cancel it tomorrow instead?"],
+    "expected_tools": ["calculate_refund"],
+    "must_match": [],
+    "must_not_match": ["\\b340\\b"],
+    "should_refuse": false
+  },
+  {
+    "id": "memory-off-topic-after-booking",
+    "question": "How much do I get back if I cancel CW-1002?",
+    "follow_ups": ["Thanks. What is the capital of Australia?"],
+    "expected_tools": ["calculate_refund"],
+    "must_match": [],
+    "must_not_match": ["canberra"],
+    "should_refuse": true
   }
 ]

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from openai import OpenAIError
 
-from agent import MODEL, create_client, run
+from agent import MODEL, SYSTEM_PROMPT, create_client, run
 
 QUESTIONS_PATH = Path("eval/questions.json")
 RESULTS_PATH = Path("eval/results.md")
@@ -37,13 +37,24 @@ def check_answer(question: dict, answer: str, tools_called: list[str]) -> list[s
 
 def ask_agent(question: dict, client) -> dict:
     tools_called = []
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    turns = [question["question"], *question.get("follow_ups", [])]
+    answers = []
     try:
-        answer = run(question["question"], client, tools_called=tools_called) or ""
-        problems = check_answer(question, answer, tools_called)
+        for turn in turns:
+            answers.append(
+                run(turn, client, tools_called=tools_called, messages=messages) or ""
+            )
+        # Follow-ups share one conversation, and only the last answer is checked.
+        problems = check_answer(question, answers[-1], tools_called)
     except OpenAIError as e:
-        answer = ""
         problems = [f"API error: {type(e).__name__}"]
-    return {"answer": answer, "tools_called": tools_called, "problems": problems}
+    return {
+        "turns": turns,
+        "answers": answers,
+        "tools_called": tools_called,
+        "problems": problems,
+    }
 
 
 def table_cell(text: str) -> str:
@@ -78,10 +89,14 @@ def write_results(questions: list[dict], attempts: dict, runs: int) -> None:
     lines += ["", "## Answers", ""]
     for question in questions:
         lines += [f"### {question['id']}", "", f"**Question:** {question['question']}", ""]
+        for follow_up in question.get("follow_ups", []):
+            lines += [f"**Follow-up:** {follow_up}", ""]
         for number, result in enumerate(attempts[question["id"]], start=1):
             status = "FAIL" if result["problems"] else "PASS"
             tools = ", ".join(result["tools_called"]) or "none"
-            lines += [f"Run {number}: {status}, tools: {tools}", "", result["answer"], ""]
+            lines += [f"Run {number}: {status}, tools: {tools}", ""]
+            for answer in result["answers"]:
+                lines += [answer, ""]
 
     RESULTS_PATH.write_text("\n".join(lines), encoding="utf-8")
 
