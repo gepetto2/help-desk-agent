@@ -55,9 +55,9 @@ I chose **OpenAI's `gpt-6-luna`**, called through **Chat Completions**, with `te
 | --- | --- |
 | `search_policies(query)` | Returns up to 3 policy sections with a similarity of at least 0.3 |
 | `get_booking(booking_id)` | Returns the booking, or "Booking not found" |
-| `calculate_refund(booking_id)` | Calculates the refund in code. Bookings that are not `confirmed` return `can_cancel: false` and no amount |
+| `calculate_refund(booking_id, cancel_at)` | Calculates the refund in code, for now or for a later time in the optional `cancel_at`. Bookings that are not `confirmed`, and times after the rental starts, return `can_cancel: false` and no amount |
 
-- **Refund rules:** 48 hours or more before the start gives 100% of the rental price, 24 hours or more gives 50%, and anything less gives 0%. The deposit always comes back and the booking fee never does.
+- **Refund rules:** 48 hours or more before the start gives 100% of the rental price, 24 hours or more gives 50%, and anything less gives 0%. The deposit always comes back and the booking fee never does. The result includes the time it was calculated for, so the model can tell the customer.
 - **Booking numbers:** `CW1002` and `cw 1002` also match `CW-1002`, while `1002` and `AB-1002` do not.
 - **Search:** the documents are split at `##` headings into 22 sections, and the text before the first heading is kept, because it says that prices include VAT. Sections and the query are turned into embeddings and ranked by similarity. There is no cache, so each search makes two API calls. This keeps the code short and costs little at this size.
 
@@ -71,6 +71,7 @@ I also considered simply giving the model all documents - it would probably work
 
 - answer only from tool results,
 - never calculate refunds or make up amounts,
+- ask for the booking number when the customer has not given one, and never guess it,
 - say that it cannot cancel or change bookings,
 - not infer answers the documents do not directly give,
 - give a short refusal with the staff contact for anything else,
@@ -79,42 +80,36 @@ I also considered simply giving the model all documents - it would probably work
 
 ## Evaluation
 
-`eval/questions.json` holds 34 questions, each with the tools it must call, regular expressions the answer must or must not match, and whether it should refuse. A refusal must include the staff contact. Five questions have follow-ups in the same conversation, and only the last answer is checked. Results are in `eval/results.md`.
+`eval/questions.json` holds 33 questions, each with the tools it must call, regular expressions the answer must or must not match, and whether it should refuse. A refusal must include the staff contact. Five questions have follow-ups in the same conversation, and only the last answer is checked. Results are in `eval/results.md`.
 
-**Result of the last evaluation: 100 of 102 attempts passed over 3 runs (32/34, 34/34, 34/34).**
+**Result of the last evaluation: 99 of 99 attempts passed over 3 runs (33/33, 33/33, 33/33).**
 
-This number is high, but some errors can be found when reading all the answers - my final count is **about 94 of 102**.
+This number is high, but some errors can be found when reading all the answers - my final count is **about 97 of 99**.
 
-The reasons are that I tuned the prompt on some of these questions, the patterns are loose, follow-up conversations are checked only at the end, and 3 runs will miss rare errors.
+The reasons are that I tuned the prompt on most of these questions, the patterns are loose, follow-up conversations are checked only at the end, and 3 runs will miss rare errors.
 
-**What failed:**
+**What failed in the last evaluation:**
 
 | Question and run | Answer | Why I think it failed | Caught by the script |
 | --- | --- | --- | --- |
-| `memory-cancel-tomorrow`, run 1 | "If you cancel tomorrow, you'd get back €340" (correct: 300 EUR) | `calculate_refund` only works for now, so the model reused today's amount | Yes |
-| `memory-cancel-tomorrow`, run 3 | "I don't have the rental start time" | False, because `get_booking` returns it. Run 2 gave 300 EUR correctly, but the model worked it out itself | No |
-| `memory-number-given-later`, runs 1–3 | "I couldn't find the booking", before the customer gave a number | The model called `get_booking` without a real number. Only the last answer is checked | No |
-| `new-bike-abroad`, run 1 | A correct answer in Polish to an English question | Cause unknown, because the results do not record the conversation. It failed only because the pattern looks for English words | Yes |
-| `off-topic-harmful-with-excuse-polish`, run 3 | A refusal in Polish mixed with Russian words | Same language problem. Refusal checks do not look at the language | No |
-| `refund-voucher`, run 1 | "The booking fee (€0)" for a booking with a 2 EUR fee | The tool returns `booking_fee_refund_eur: 0`, which the model misread as the fee | No |
+| `new-change-too-late`, runs 1 and 2 | "Yes. ... the dates can't be changed" | The answer contradicts itself before giving the right rule. The pattern only checks for the number 24 | No |
 
-**The first evaluation** covered the first 29 questions, with the same prompt and 86 of 87 attempts passed (about 83 after reading). Two of its problems did not come back in the last 3 runs, which does not prove they are gone: a self-contradicting "Yes" in `new-change-too-late` and amounts the model calculated itself in `new-late-return-fee`. Its Polish reply in `new-off-topic-restaurant` was the first sign of the language problem above.
+I did not fix this one. Two minor issues did not change the meaning: one answer repeated "What's your booking number?" twice, and one added an empty sentence about the late fee.
 
-**What I tried to fix before the evaluations**, using manual tries that are not part of them:
+**What I tried to fix**, first with manual tries and then checked in the evaluations:
 
 | Problem | What I changed | Did it help |
 | --- | --- | --- |
-| "The capital of Australia is Canberra" | Added the system prompt | Yes |
 | Saturday hours listed both seasons | First "give only the rule valid now", then "assume the nearest such date" | The first did not. The second gave 6 of 6 correct, then one miss in a later try, and 6 of 6 in each evaluation. It may not be stable |
-| Voucher refund did not say how the money comes back | Told the model to search for this when there is a refund | Yes, 2 of 2 |
 | "The calculated refund is €0" for a booking that cannot be cancelled | Removed `total_refund_eur: 0` from the tool result | Yes, 3 of 3 without €0 |
 | "The refund tool shows..." | Told the model not to mention its tools | Yes, 5 of 5 |
-| "We only rent bikes" for scooters | Told the model not to infer from related rules | Partly: 4 of 4 at first, then 2 of 3 and 3 of 3 in the evaluations |
 | Refusing a bomb question but offering help with "a scene for your book" | Refusals must be short, with no alternatives | Yes, 6 of 6 |
+| "If you cancel tomorrow, you'd get back €340" (correct: 300 EUR) | Added `cancel_at` to `calculate_refund`, so the amount comes from code | Yes. In evaluation 2 one answer was wrong and one avoided the question, then 3 of 3 gave 300 EUR in evaluations 3 and 4 |
+| After adding a rule to ask for a missing booking number, the agent asked again for CW-1004 when the customer had just given it | Removed the example number `CW-1002` from the tool description | Yes: 1 of 3 in evaluation 3, then 3 of 3. In a small manual test with 6 tries per version, this was better than rewording the rule, which brought back "not found" for a missing number. The real cause is not certain |
 
-Refund amounts for cancelling now were correct in every attempt, including the 48-hour and 24-hour boundaries, and the agent rejected a demand for a 500 EUR refund. Follow-up questions about the refund or another booking and an off-topic question in the middle of a conversation also worked.
+Answers in the wrong language, including Polish mixed with Russian words, appeared in evaluations 1 and 2 but not in 3 and 4. I did not change anything for this, so I do not count it as fixed. The `booking_fee_refund_eur: 0` field was misread as a 0 EUR fee once, in evaluation 2, and is still unchanged.
 
-**Tests:** 57 tests cover the tools, every refund rule, the loop with a fake model, and conversation memory, including the command line. They need no network and no key, and a GitHub Actions workflow runs them on every push. They do not judge the model's answers: the misleading "€0" answer passed the tests because the tests at that time required that field. I found it by reading the agent's reply.
+**Tests:** 53 tests cover the tools, every refund rule, cancelling at a later time, the loop with a fake model, and conversation memory, including the command line. They need no network and no key, and a GitHub Actions workflow runs them on every push. They do not judge the model's answers: the misleading "€0" answer passed the tests because the tests at that time required that field. I found it by reading the agent's reply.
 
 ## Use of AI coding assistants
 
@@ -132,22 +127,18 @@ Most of the AI-written code is in areas of testing and evaluating, as I have lit
 ## Limitations
 
 - The evaluation uses patterns that do not judge whole answers, checks only the last answer of a conversation, and the prompt was tuned on some of the questions.
-- `calculate_refund` only works for the current time, so questions about cancelling later can get a wrong amount or none.
-- Model answers vary. A rule that works several times in a row can still fail later, and replies are sometimes in the wrong language.
-- If the customer gives no booking number, the agent may say the booking was not found instead of asking for it.
+- Model answers vary. A rule that works several times in a row can still fail later, and earlier evaluations had replies in the wrong language.
+- A prompt change can fix one case and break another, as the missing number rule did. Every change needs a new evaluation.
 - Refusals depend on the model and its instructions, not on the search threshold.
 - Questions about prices that need calculating have not been evaluated, and only refunds have a calculation tool.
 - Anyone who knows a booking number can see that booking. There is no customer authentication.
 - The conversation history is kept only for the session and grows without a limit, so long conversations cost more.
-- The agent must be run from the repository root. There is no retry on rate limits. API errors show the error type to the customer.
+- There is no retry on rate limits. API errors show the error type to the customer.
 
 ## What I would do next
 
-1. Add an optional cancellation time to `calculate_refund`, so "what if I cancel tomorrow?" gets an amount from code.
-2. Fix the failures above: ask for a missing booking number, return the real booking fee instead of `booking_fee_refund_eur: 0`, and try a stricter language rule.
-3. Make the evaluation stricter: check every answer in a conversation, check the language, tighten the loose patterns and fail any amount that no tool returned.
-4. Add tools for price and late fee calculations, and evaluate such questions.
-5. Add questions written by someone who has not seen the code or the prompt, to get a less biased result.
-6. Save the conversation for each run in the results, so failures can be diagnosed.
-7. Compare Chat Completions with the Responses API, and full documents with search, on the same questions.
-8. Add retries on rate limits and a cache of section embeddings.
+1. Fix the remaining problems: the contradicting "Yes", and a stricter language rule, etc.
+2. Add tools for price and late fee calculations, and evaluate such questions.
+3. Add questions written by someone who has not seen the code or the prompt, to get a less biased result.
+4. Compare Chat Completions with the Responses API, and full documents with search, on the same questions.
+5. Add retries on rate limits and a cache of section embeddings.

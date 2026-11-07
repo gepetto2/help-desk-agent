@@ -216,6 +216,14 @@
     "should_refuse": true
   },
   {
+    "id": "missing-booking-number",
+    "question": "How much do I get back if I cancel my booking?",
+    "expected_tools": [],
+    "must_match": ["number"],
+    "must_not_match": ["not found", "(couldn.t|could not|can.t|cannot|unable to) find"],
+    "should_refuse": false
+  },
+  {
     "id": "memory-refund-method",
     "question": "How much do I get back if I cancel CW-1002?",
     "follow_ups": ["How long will it take to get the money back?"],
