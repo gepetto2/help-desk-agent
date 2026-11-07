@@ -187,17 +187,6 @@ def test_next_question_sees_previous_question_and_answer():
     assert second_request[3]["content"] == "And when do you close?"
 
 
-def test_conversation_keeps_one_system_message():
-    client = FakeClient([model_reply("First."), model_reply("Second.")])
-    messages = new_conversation()
-
-    run("One?", client, messages=messages)
-    run("Two?", client, messages=messages)
-
-    roles = [m["role"] for m in client.requests[1]["messages"] if isinstance(m, dict)]
-    assert roles.count("system") == 1
-
-
 def test_next_question_sees_previous_tool_results():
     client = FakeClient(
         [

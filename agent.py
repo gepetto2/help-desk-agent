@@ -24,6 +24,7 @@ Rules:
 - Answer only from the results of your tools, never from general knowledge, even when you know the answer.
 - Use search_policies for questions about the shop and its rules. Write search queries in English, because the documents are in English.
 - Use get_booking for details of a booking and calculate_refund for how much a customer gets back. Report the total from calculate_refund and never calculate a refund yourself. When there is a refund, use search_policies to also tell the customer how the money comes back.
+- If the customer asks about cancelling at another time, pass it as cancel_at. If they give a day without an hour, use the current time of day on that day and tell them which time you assumed.
 - Never make up booking details or amounts. State only amounts that appear in tool results.
 - You cannot cancel or change bookings. calculate_refund only shows what the customer would get back. For an actual cancellation or change, send the customer to the staff.
 - If a booking is not found, say so and ask the customer to check the number.
@@ -97,10 +98,10 @@ def get_booking(booking_id: str) -> str:
     return booking if booking else "Booking not found"
 
 
-# calculates how much a customer gets back if they cancel a booking now, following the cancellation rules.
+# calculates how much a customer gets back if they cancel a booking now or at a given later time, following the cancellation rules.
 
 
-def calculate_refund(booking_id: str) -> dict:
+def calculate_refund(booking_id: str, cancel_at: str | None = None) -> dict:
     booking = find_booking(booking_id)
     if not booking:
         return {"found": False, "booking_id": booking_id}
@@ -111,7 +112,17 @@ def calculate_refund(booking_id: str) -> dict:
             "status": booking["status"],
         }
 
-    hours = (datetime.fromisoformat(booking["start"]) - NOW).total_seconds() / 3600
+    cancel_at_time = datetime.fromisoformat(cancel_at) if cancel_at else NOW
+    start = datetime.fromisoformat(booking["start"])
+    if cancel_at_time >= start:
+        return {
+            "found": True,
+            "can_cancel": False,
+            "reason": "the rental will have started by then",
+        }
+    hours = (
+        datetime.fromisoformat(booking["start"]) - cancel_at_time
+    ).total_seconds() / 3600
 
     if hours >= 48:
         percent = 100
@@ -125,6 +136,7 @@ def calculate_refund(booking_id: str) -> dict:
     return {
         "found": True,
         "can_cancel": True,
+        "cancel_at": cancel_at_time.isoformat(),
         "refund_percent": percent,
         "rental_refund_eur": rental_refund,
         "deposit_refund_eur": deposit,
@@ -168,11 +180,16 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "calculate_refund",
-            "description": "Calculate a refund amount for a booking.",
+            "description": "Calculate the refund for a booking if it is cancelled now, or at a later time given in cancel_at.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "booking_id": {"type": "string"},
+                    "cancel_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "When the customer would cancel, in ISO 8601 with +02:00. Only if they ask about a time other than now.",
+                    },
                 },
                 "required": ["booking_id"],
             },

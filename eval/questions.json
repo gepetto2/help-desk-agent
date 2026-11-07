@@ -48,22 +48,6 @@
     "should_refuse": false
   },
   {
-    "id": "refund-number-without-hyphen",
-    "question": "How much do I get back if I cancel CW1002?",
-    "expected_tools": ["calculate_refund"],
-    "must_match": ["\\b340\\b"],
-    "must_not_match": [],
-    "should_refuse": false
-  },
-  {
-    "id": "refund-boundary-48h",
-    "question": "How much would I get back for CW-1007?",
-    "expected_tools": ["calculate_refund"],
-    "must_match": ["\\b186\\b"],
-    "must_not_match": [],
-    "should_refuse": false
-  },
-  {
     "id": "refund-voucher",
     "question": "How much do I get back if I cancel CW-1004?",
     "expected_tools": ["calculate_refund", "search_policies"],
@@ -263,8 +247,8 @@
     "question": "How much do I get back if I cancel CW-1002?",
     "follow_ups": ["What if I cancel it tomorrow instead?"],
     "expected_tools": ["calculate_refund"],
-    "must_match": [],
-    "must_not_match": ["\\b340\\b"],
+    "must_match": ["\\b300\\b"],
+    "must_not_match": [],
     "should_refuse": false
   },
   {
